@@ -9,19 +9,39 @@ list of hosts that should be scanned by Prometheus.  The output files are writte
 
 Motivation
 -----------
-Prometheus does have an "EC2 SD" feature built-in.  However, it is not flexible and was
-really only meant to discover ALL of the EC2 instances for a given AWS account.
+In today's world, dev teams take advantage of many features afforded by cloud environments like AWS.
+Application deployments tend to happen more frequently.  And the applications themselves are likely to change
+locations (e.g. host machines, IP addresses) just as often due to regular host rotations, auto-scaling,
+or utilization of AWS ECS ([Elastic Container Service](https://aws.amazon.com/ecs/)).
 
-Alternatively, Prometheus also has "[file_sd](https://prometheus.io/docs/guides/file-sd/)"
-support wherein it periodically reads file(s) for target configurations.  This offers more flexibility for teams that need to construct a list of targets based on very specific search criteria.  The built-in "file SD" Prometheus feature is what this tool integrates with.
+This can be a challenge for teams that use Prometheus for metrics since it uses a "pull" model wherein
+Prometheus has to know where to scrape the metrics.  Prometheus configurations have to be updated
+when applications move around.
+
+Prometheus does have service discovery (sd) options built-in that helps it find targets dynamically.
+This includes _[ec2_sd](https://prometheus.io/docs/prometheus/latest/configuration/configuration/#%3Cec2_sd_config%3E)_ for AWS EC2 support.
+However, it is not very flexible and was originally only able to list and scrape all EC2 instances for a given AWS account.
+They have since updated it and added *filters* so that you can specify which EC2 instances to scrape.
+However, it still has some limitations (single scrape port, clunky private/public IP address targeting)
+and also does not support discovery for AWS ECS.
+
+Alternatively, Prometheus has _[file_sd](https://prometheus.io/docs/guides/file-sd/)_
+support wherein it periodically reads files for target configurations.
+This offers more flexibility for teams that can use any number of methods to dynamically
+construct a list of scrape targets using very specific search criteria.
+This built-in _file_sd_ Prometheus is what this tool integrates with.
+
+This tool provides a more flexible way to search for EC2 instances and ECS tasks, and then
+writes the target information into files that are read by Prometheus using _file_sd_.
+(NOTE: _[AWS EKS](https://aws.amazon.com/eks) is currently not supported_)  
 
 Configuration
 -----------
 
 The main configuration file is organized into three main sections:
-* **aws** - AWS access configuration
-* **output** - specify where to write files and what format to use
-* **targets** - specify search targets in AWS
+* **aws** - specifies how to AWS access configuration
+* **output** - specifies where to write the output files and what format to use
+* **targets** - specifies one ore more search entries used to discover targets in AWS
 
 The file itself uses [HOCON (Human-Optimized Config Object Notation)](https://github.com/lightbend/config/blob/master/HOCON.md)
 format, which is a superset of JSON.  You can format it in JSON and it will
@@ -41,7 +61,7 @@ _refresh-period_ - specifies how often to poll AWS
 
 
 **Output Section**
-* _dir_ - output directory where to write files
+* _dir_ - output directory where to write files (NOTE: _Your Prometheus instance needs to have access to this directory as well._)
 * _format_ - "yaml" or "json" - both formats can be read by Prometheus file_sd
 
 **Targets Section**
@@ -65,32 +85,6 @@ The _targets_ section is a list of search config entries with the following attr
               You may have an application exposing metrics on port 80 while also running
               [Prometheus Node Exporter](https://github.com/prometheus/node_exporter)
               which exposes metrics on port 9100.
-
-
-## Building a Docker Image
-
-The easiest way to build and run this tool is using Docker.
-An official image will be published to DockerHub in the future.  For now, you will have to build the image yourself.
-
-
-or example, if you have created your config file at 'config=/var/my_files/config.conf':
-
-```
-./gradlew dockerBuild -Pconfig=/var/my_files/config.conf
-```
-
-To run the Docker image in a container:
-```
-docker run -d mdome7/prometheus-aws-sd:1.0
-```
-
-You can also put your config file in a Docker volume and pass in the filepath as a run parameter.
-For example if your config file is on the Docker host machine's `/var/tmp` folder, you can mount
-the host directory and reference the config file.
-```
-docker run -d -v /host/directory:/container/directory  mdome7/prometheus-aws-sd:1.0  /container/directory/config.conf
-```
-
 
 ### Sample Config File
 */var/my_files/config.conf*
@@ -210,4 +204,57 @@ scrape_configs:
   file_sd_configs:
   - files:
     - '/var/tmp/output/target-3-ecs-prod.yaml'
+```
+
+Prometheus will periodically read the files specified in the configuration
+(which are in turn updated periodically by this application).
+
+
+Running the Application
+-----------
+
+### Building and Running in Docker
+
+The easiest way to build and run this tool is using Docker.
+An official image will be published to DockerHub in the future.  For now, you will have to build the image yourself.
+
+
+For example, if you placed your config file at `/var/my_files/config.conf`:
+
+```
+./gradlew dockerBuild -Pconfig=/var/my_files/config.conf
+```
+
+To run the Docker image in a container:
+```
+docker run -d mdome7/prometheus-aws-sd:1.0
+```
+
+You can also put your config file in a Docker volume and pass in the filepath as a run argument.
+For example if your config file is on the Docker host machine's `/var/tmp` folder, you can mount
+the host directory and reference the config file.
+```
+docker run -d -v /host/directory:/container/directory  mdome7/prometheus-aws-sd:1.0  /container/directory/config.conf
+```
+
+### Using the Distribution Tarball or Zip file
+
+You can package up the application into a tarball (*.tar) or zip fie (*.zip) by using the Gradle
+[distribution plugin](https://docs.gradle.org/current/userguide/distribution_plugin.html) and associated tasks:
+
+```
+# Create a tarball
+./gradlew distTar
+
+# or create a zip file
+./gradlew distZip
+```
+
+You should see the created tarball/zip under the `build/distributions/` directory which 
+you can then move anywhere you want to run the application.
+
+Unpack the tarball/zip and run the executable while specifying the path to your configuration file
+```
+tar -xf prometheus-aws-sd-1.0.tar
+prometheus-aws-sd-1.0/bin/prometheus-aws-sd  path/to/my/config.conf
 ```
