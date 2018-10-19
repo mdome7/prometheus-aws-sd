@@ -1,0 +1,17 @@
+# IDE
+.idea/
+**/*.iml
+
+# Gradle
+.gradle/
+**/build/
+
+# Mac OSX
+**/.DS_Store
+
+# Misc
+*.tmp
+
+**/secret*
+**/*IT.scala
+**/*IT.java
